@@ -26,12 +26,15 @@
     <reference id="nitfParserService"
                interface="org.codice.alliance.imaging.nitf.api.NitfParserService"/>
 
+    <reference id="belittle" interface="com.github.ahoffer.sizeimage.BeLittle"/>
+
     <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin">
         <cm:managed-properties persistent-id="NITF_Render_Plugin"
                                update-strategy="container-managed"/>
         <property name="maxSideLength" value="1024"/>
         <property name="catalogFramework" ref="catalogFramework"/>
         <property name="nitfParserService" ref="nitfParserService"/>
+        <property name="belittle" ref="belittle"/>
     </bean>
 
     <service ref="plugin" auto-export="interfaces">

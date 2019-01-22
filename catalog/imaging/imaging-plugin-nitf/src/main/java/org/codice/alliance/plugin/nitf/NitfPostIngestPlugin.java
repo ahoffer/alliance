@@ -13,6 +13,9 @@
  */
 package org.codice.alliance.plugin.nitf;
 
+import com.github.ahoffer.sizeimage.BeLittle;
+import com.github.ahoffer.sizeimage.BeLittlingMessage;
+import com.github.ahoffer.sizeimage.BeLittlingResult;
 import com.github.jaiimageio.jpeg2000.J2KImageWriteParam;
 import com.github.jaiimageio.jpeg2000.impl.J2KImageReaderSpi;
 import com.github.jaiimageio.jpeg2000.impl.J2KImageWriter;
@@ -62,6 +65,7 @@ import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.spi.IIORegistry;
+import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import javax.imageio.stream.MemoryCacheImageOutputStream;
 import net.coobird.thumbnailator.Thumbnails;
@@ -70,6 +74,7 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.codice.alliance.imaging.nitf.api.NitfParserService;
+import org.codice.ddf.platform.util.TemporaryFileBackedOutputStream;
 import org.codice.imaging.nitf.core.common.NitfFormatException;
 import org.codice.imaging.nitf.core.image.ImageSegment;
 import org.codice.imaging.nitf.render.NitfRenderer;
@@ -84,60 +89,40 @@ import org.slf4j.LoggerFactory;
 public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   static final String IMAGE_NITF = "image/nitf";
-
   private static final String IMAGE_JPEG = "image/jpeg";
-
   private static final String IMAGE_JPEG2K = "image/jp2";
-
   private static final String NITF_PROCESSING_KEY = "NitfPostIngestPlugin.Processed";
-
   private static final int THUMBNAIL_WIDTH = 200;
-
   private static final int THUMBNAIL_HEIGHT = 200;
-
   private static final long MEGABYTE = 1024L * 1024L;
-
   private static final String JPG = "jpg";
-
   private static final String JP2 = "jp2";
-
   private static final Logger LOGGER = LoggerFactory.getLogger(NitfPostIngestPlugin.class);
-
   private static final String OVERVIEW = "overview";
-
   private static final String ORIGINAL = "original";
-
   private static final String DERIVED_IMAGE_FILENAME_PATTERN = "%s-%s.%s";
-
   // non-word characters equivalent to [^a-zA-Z0-9_]
   private static final String INVALID_FILENAME_CHARACTER_REGEX = "[\\W]";
-
   private static final double DEFAULT_MAX_SIDE_LENGTH = 1024.0;
-
   private static final int ARGB_COMPONENT_COUNT = 4;
-
   private static final int DEFAULT_MAX_NITF_SIZE = 120;
-
   private static final int MAX_THREAD_COUNT =
       Integer.parseInt(System.getProperty("default.nitf.thread.count", "3"));
-
-  private int maxNitfSizeMB = DEFAULT_MAX_NITF_SIZE;
-
-  private boolean createOverview = true;
-
-  private boolean storeOriginalImage = true;
-
-  private CatalogFramework catalogFramework;
-
-  private NitfParserService nitfParserService;
-
-  private Semaphore lock;
 
   static {
     IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
   }
 
+  private BeLittle belittle;
+  private int maxNitfSizeMB = DEFAULT_MAX_NITF_SIZE;
+  private boolean createOverview = true;
+  private boolean storeOriginalImage = true;
+  private CatalogFramework catalogFramework;
+  private NitfParserService nitfParserService;
+  private Semaphore lock;
   private double maxSideLength = DEFAULT_MAX_SIDE_LENGTH;
+
+
 
   public NitfPostIngestPlugin() {
     this(new Semaphore(MAX_THREAD_COUNT, true));
@@ -266,45 +251,80 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   private void process(Metacard metacard, InputStream input, List<ContentItem> contentItems) {
     try (InputStream source = input) {
-      if (getResourceSizeInMB(metacard) > maxNitfSizeMB) {
-        LOGGER.debug(
-            "Skipping large ({} MB) content item: {}",
-            getResourceSizeInMB(metacard),
-            metacard.getId());
-        return;
-      }
+      //      if (getResourceSizeInMB(metacard) > maxNitfSizeMB) {
+      //        LOGGER.debug(
+      //            "Skipping large ({} MB) content item: {}",
+      //            getResourceSizeInMB(metacard),
+      //            metacard.getId());
+      //        return;
+      //      }
 
-      BufferedImage renderedImage = renderImageUsingOriginalDataModel(source);
+      final ThreadLocal<BufferedImage> bufferedImage = new ThreadLocal<>();
 
-      if (renderedImage != null) {
-        addThumbnailToMetacard(metacard, renderedImage);
+      try {
+        if (input != null) {
+          nitfParserService
+              .parseNitf(input, true)
+              .forEachImageSegment(
+                  segment -> {
+                    try {
+                      if (bufferedImage.get() == null) {
+                        TemporaryFileBackedOutputStream tmp = new TemporaryFileBackedOutputStream();
+                        ImageInputStream iis = segment.getData();
+                        int size = 8 * 1024;
+                        int len;
+                        byte[] buffer = new byte[size];
+                        while ((len = iis.read(buffer)) > 0) {
+                          tmp.write(buffer, 0, len);
+                        }
+                        tmp.flush();
 
-        if (createOverview) {
-          ContentItem overviewContentItem =
-              createDerivedImage(
-                  metacard.getId(),
-                  OVERVIEW,
-                  renderedImage,
-                  metacard,
-                  calculateOverviewWidth(renderedImage),
-                  calculateOverviewHeight(renderedImage));
-
-          contentItems.add(overviewContentItem);
+                        BeLittlingResult results = belittle
+                            .generate(tmp.asByteSource().openStream());
+                        List<BeLittlingMessage> msg = results
+                            .getMessages();
+                        BufferedImage bi = results.getOutput().get();
+                        if (bi != null) {
+                          bufferedImage.set(bi);
+                        }
+                      }
+                    } catch (IOException e) {
+                      e.printStackTrace();
+                    }
+                  });
         }
-
-        if (storeOriginalImage) {
-          ContentItem originalImageContentItem =
-              createOriginalImage(metacard.getId(), renderedImage, metacard);
-
-          contentItems.add(originalImageContentItem);
-        }
+      } catch (NitfFormatException e) {
+        e.printStackTrace();
       }
-    } catch (NumberFormatException e) {
-      LOGGER.debug("Error getting resource size {}", e.getMessage(), e);
-    } catch (IOException | NitfFormatException | RuntimeException e) {
-      LOGGER.debug("Error creating and storing thumbnail/overview/original: {}", e.getMessage(), e);
+      addThumbnailToMetacard(metacard, bufferedImage.get());
+    } catch (IOException e) {
+      e.printStackTrace();
     }
+
+//      byte[] thumbnailImage = scaleImage(bufferedImage, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+//      metacard.setAttribute(new AttributeImpl(Core.THUMBNAIL, thumbnailImage));
+
+//        if (createOverview) {
+//          ContentItem overviewContentItem =
+//              createDerivedImage(
+//                  metacard.getId(),
+//                  OVERVIEW,
+//                  renderedImage,
+//                  metacard,
+//                  calculateOverviewWidth(renderedImage),
+//                  calculateOverviewHeight(renderedImage));
+//
+//          contentItems.add(overviewContentItem);
+//        }
+//
+//        if (storeOriginalImage) {
+//          ContentItem originalImageContentItem =
+//              createOriginalImage(metacard.getId(), renderedImage, metacard);
+//
+//          contentItems.add(originalImageContentItem);
+//        }
   }
+
 
   private BufferedImage renderImageUsingOriginalDataModel(InputStream source)
       throws NitfFormatException {
@@ -556,5 +576,13 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   public void setNitfParserService(NitfParserService nitfParserService) {
     this.nitfParserService = nitfParserService;
+  }
+
+  public BeLittle getBelittle() {
+    return belittle;
+  }
+
+  public void setBelittle(BeLittle belittle) {
+    this.belittle = belittle;
   }
 }

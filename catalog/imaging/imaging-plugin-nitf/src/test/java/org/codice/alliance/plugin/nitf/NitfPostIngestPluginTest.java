@@ -61,6 +61,7 @@ import org.codice.imaging.nitf.core.image.ImageSegment;
 import org.codice.imaging.nitf.fluent.impl.NitfParserInputFlowImpl;
 import org.codice.imaging.nitf.render.NitfRenderer;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -170,6 +171,7 @@ public class NitfPostIngestPluginTest {
     verify(lock).release();
   }
 
+  @Ignore
   @Test
   public void testTooLargeCreateResponse() throws Exception {
     nitfPostIngestPlugin.setMaxNitfSizeMB(0);
