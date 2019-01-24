@@ -16,3 +16,8 @@ grant codeBase "file:/catalog-nsili-endpoint/catalog-nsili-source" {
     permission java.io.FilePermission "${ddf.home.perm}etc${/}ws-security${/}server${/}-", "read";
     permission java.io.FilePermission "${ddf.home.perm}etc${/}keystores${/}-", "read";
 }
+
+grant
+  codeBase "file:/catalog-core-standardframework/catalog-rest-impl/catalog-ui-search/imaging-nitf-impl/imaging-plugin-nitf/javax.servlet-api/org.apache.cxf.cxf-rt-transports-http/org.eclipse.jetty.servlet/platform-paxweb-jettyconfig/com.github.ahoffer.bundle" {
+    permission java.io.FilePermission "<<ALL FILES>>", "read, execute";
+}
