@@ -19,7 +19,6 @@
     <feature name="nitf-render-plugin" version="${project.version}"
              description="The imaging render plugin populates thumbnail, original, and overview on nitf metacards.">
         <feature>imaging-nitf</feature>
-        <bundle>mvn:com.github.ahoffer/bundle/1.0.0-SNAPSHOT</bundle>
     </feature>
 
     <feature name="nitf-post-process-plugin" version="${project.version}"
