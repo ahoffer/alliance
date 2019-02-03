@@ -13,9 +13,10 @@
  */
 package org.codice.alliance.plugin.nitf;
 
-import com.github.ahoffer.sizeimage.BeLittle;
-import com.github.ahoffer.sizeimage.BeLittlingMessage;
-import com.github.ahoffer.sizeimage.BeLittlingResult;
+import belittle.BeLittle;
+import belittle.BeLittleFactory;
+import belittle.BeLittleResult;
+import belittle.BeLittleSizerSetting;
 import com.google.common.io.ByteSource;
 import ddf.catalog.CatalogFramework;
 import ddf.catalog.content.data.ContentItem;
@@ -60,14 +61,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
-import javax.imageio.stream.ImageInputStream;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.codice.alliance.imaging.nitf.api.NitfParserService;
-import org.codice.ddf.platform.util.TemporaryFileBackedOutputStream;
 import org.codice.imaging.nitf.core.common.NitfFormatException;
 import org.codice.imaging.nitf.core.image.ImageSegment;
 import org.codice.imaging.nitf.render.NitfRenderer;
@@ -119,18 +118,19 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
   private static final int MAX_THREAD_COUNT =
       Integer.parseInt(System.getProperty("default.nitf.thread.count", "3"));
 
-//  static {
-//    IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
-//  }
+  //  static {
+  //    IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
+  //  }
 
-  private int maxNitfSizeMB = 0;
+  private int maxNitfSizeMB = -1;
   private boolean createOverview = true;
   private boolean storeOriginalImage = true;
   private CatalogFramework catalogFramework;
   private NitfParserService nitfParserService;
   private Semaphore lock;
   private double maxSideLength = DEFAULT_MAX_SIDE_LENGTH;
-  private BeLittle belittle;
+  private BeLittleFactory belittleFactory;
+  private BeLittle beLittle;
 
   public NitfPostIngestPlugin() {
     this(new Semaphore(MAX_THREAD_COUNT, true));
@@ -138,6 +138,14 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   public NitfPostIngestPlugin(Semaphore lock) {
     this.lock = lock;
+  }
+
+  @SuppressWarnings("unused")
+  public void initialize() {
+    BeLittleSizerSetting settings = belittleFactory.newSetting();
+    settings.setWidth(THUMBNAIL_WIDTH);
+    settings.setHeight(THUMBNAIL_HEIGHT);
+    beLittle = belittleFactory.newBeLittle(settings);
   }
 
   @Override
@@ -260,7 +268,7 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
   private void process(Metacard metacard, InputStream input, List<ContentItem> contentItems) {
     BufferedImage renderedImage;
     try (InputStream source = input) {
-      if (getResourceSizeInMB(metacard) > maxNitfSizeMB) {
+      if (getResourceSizeInMB(metacard) > -1) {
         LOGGER.debug(
             "Skipping large ({} MB) content item: {}",
             getResourceSizeInMB(metacard),
@@ -305,32 +313,12 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
             () -> {
               AtomicReference<BufferedImage> img = new AtomicReference<>();
               try {
-                nitfParserService
-                    .parseNitf(input, true)
-                    .forEachImageSegment(
-                        segment -> {
-                          try {
-                            TemporaryFileBackedOutputStream tmp =
-                                new TemporaryFileBackedOutputStream();
-                            ImageInputStream iis = segment.getData();
-                            int size = 8 * 1024;
-                            int len;
-                            byte[] buffer = new byte[size];
-                            while ((len = iis.read(buffer)) > 0) {
-                              tmp.write(buffer, 0, len);
-                            }
-                            tmp.flush();
+                nitfParserService.parseNitf(input, true).forEachImageSegment(segment -> {
+                  List<BeLittleResult> result = beLittle.resize(segment.getData());
+                });
 
-                            BeLittlingResult results =
-                                belittle.generate(tmp.asByteSource().openStream());
-                            List<BeLittlingMessage> msg = results.getMessages();
-                            img.set(results.getOutput().orElse(null));
-                          } catch (IOException e) {
-                            e.printStackTrace();
-                          }
-                        });
               } catch (NitfFormatException e) {
-                e.printStackTrace();
+                LOGGER.info("Failed to extract image from NITF", e);
               }
               return img.get();
             });
@@ -591,11 +579,11 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
     this.nitfParserService = nitfParserService;
   }
 
-  public BeLittle getBelittle() {
-    return belittle;
+  public BeLittleFactory getBelittleFactory() {
+    return belittleFactory;
   }
 
-  public void setBelittle(BeLittle belittle) {
-    this.belittle = belittle;
+  public void setBelittleFactory(BeLittleFactory belittleFactory) {
+    this.belittleFactory = belittleFactory;
   }
 }

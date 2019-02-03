@@ -13,28 +13,29 @@
  **/
  -->
 <blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
-           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
-           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0
            http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
            http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0
            http://aries.apache.org/schemas/blueprint-cm/blueprint-cm-1.1.0.xsd">
 
     <reference id="catalogFramework" interface="ddf.catalog.CatalogFramework"
-               availability="mandatory"/>
+        availability="mandatory"/>
 
     <reference id="nitfParserService"
-               interface="org.codice.alliance.imaging.nitf.api.NitfParserService"/>
+        interface="org.codice.alliance.imaging.nitf.api.NitfParserService"/>
 
-    <reference id="belittle" interface="com.github.ahoffer.sizeimage.BeLittle"/>
+    <reference id="belittleFactory" interface="belittle.BeLittleFactory"/>
 
-    <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin">
+    <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin"
+        init-method="initialize">
         <cm:managed-properties persistent-id="NITF_Render_Plugin"
-                               update-strategy="container-managed"/>
+            update-strategy="container-managed"/>
         <property name="maxSideLength" value="1024"/>
         <property name="catalogFramework" ref="catalogFramework"/>
         <property name="nitfParserService" ref="nitfParserService"/>
-        <property name="belittle" ref="belittle"/>
+        <property name="belittleFactory" ref="belittleFactory"/>
     </bean>
 
     <service ref="plugin" auto-export="interfaces">
