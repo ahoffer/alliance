@@ -18,6 +18,6 @@ grant codeBase "file:/catalog-nsili-endpoint/catalog-nsili-source" {
 }
 
 grant
-  codeBase "file:/belittle-bundle" {
+  codeBase "file:/belittle.bundle" {
     permission java.io.FilePermission "<<ALL FILES>>", "read, execute";
 }
