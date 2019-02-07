@@ -21,3 +21,8 @@ grant
   codeBase "file:/belittle.bundle" {
     permission java.io.FilePermission "<<ALL FILES>>", "read, execute";
 }
+
+grant
+  codeBase "file:/org.apache.commons.exec" {
+    permission java.io.FilePermission "<<ALL FILES>>", "read, execute";
+}

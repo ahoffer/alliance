@@ -15,8 +15,10 @@ package org.codice.alliance.plugin.nitf;
 
 import belittle.BeLittle;
 import belittle.BeLittleFactory;
-import belittle.BeLittleResult;
 import belittle.BeLittleSizerSetting;
+import com.github.jaiimageio.jpeg2000.J2KImageWriteParam;
+import com.github.jaiimageio.jpeg2000.impl.J2KImageWriter;
+import com.github.jaiimageio.jpeg2000.impl.J2KImageWriterSpi;
 import com.google.common.io.ByteSource;
 import ddf.catalog.CatalogFramework;
 import ddf.catalog.content.data.ContentItem;
@@ -42,13 +44,12 @@ import ddf.catalog.resource.ResourceNotFoundException;
 import ddf.catalog.resource.ResourceNotSupportedException;
 import ddf.catalog.source.IngestException;
 import ddf.catalog.source.SourceUnavailableException;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -60,7 +61,11 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.stream.ImageOutputStream;
+import javax.imageio.stream.MemoryCacheImageOutputStream;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang.StringUtils;
@@ -113,21 +118,23 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   private static final int ARGB_COMPONENT_COUNT = 4;
 
-  private static final int DEFAULT_MAX_NITF_SIZE = 120;
+  private static final int DEFAULT_MAX_NITF_SIZE = -1;
 
   private static final int MAX_THREAD_COUNT =
       Integer.parseInt(System.getProperty("default.nitf.thread.count", "3"));
 
-  //  static {
-  //    IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
-  //  }
+  private int maxNitfSizeMB = DEFAULT_MAX_NITF_SIZE;
 
-  private int maxNitfSizeMB = -1;
   private boolean createOverview = true;
   private boolean storeOriginalImage = true;
   private CatalogFramework catalogFramework;
   private NitfParserService nitfParserService;
   private Semaphore lock;
+
+  //  static {
+  //    IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
+  //  }
+
   private double maxSideLength = DEFAULT_MAX_SIDE_LENGTH;
   private BeLittleFactory belittleFactory;
   private BeLittle beLittle;
@@ -143,8 +150,8 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
   @SuppressWarnings("unused")
   public void initialize() {
     BeLittleSizerSetting settings = belittleFactory.newSetting();
-    settings.setWidth(THUMBNAIL_WIDTH);
-    settings.setHeight(THUMBNAIL_HEIGHT);
+    settings.setWidth((int) maxSideLength);
+    settings.setHeight((int) maxSideLength);
     beLittle = belittleFactory.newBeLittle(settings);
   }
 
@@ -260,68 +267,56 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
       if (contentCount == contentUpdates.size() && metacard.getThumbnail() != originalThumbnail) {
         metacardUpdates.add(metacard);
       }
+    } catch (NitfFormatException | IOException e) {
+      LOGGER.info("Could not generate images from NITF for metacard {}", metacard.getId(), e);
     } finally {
       lock.release();
     }
   }
 
-  private void process(Metacard metacard, InputStream input, List<ContentItem> contentItems) {
-    BufferedImage renderedImage;
+  private void process(Metacard metacard, InputStream input, List<ContentItem> contentItems)
+      throws NitfFormatException, IOException {
+    // Because the variable is used in a lambda it must be effectively final or atomic.
+    AtomicReference<BufferedImage> image = new AtomicReference<>();
+    boolean largeFile = getResourceSizeInMB(metacard) > maxNitfSizeMB;
     try (InputStream source = input) {
-      if (getResourceSizeInMB(metacard) > -1) {
-        LOGGER.debug(
-            "Skipping large ({} MB) content item: {}",
-            getResourceSizeInMB(metacard),
-            metacard.getId());
-        renderedImage = processLarge(input);
+      if (!largeFile) {
+        image.set(renderImageUsingOriginalDataModel(source));
       } else {
-        renderedImage = renderImageUsingOriginalDataModel(source);
-      }
-      if (renderedImage != null) {
-        addThumbnailToMetacard(metacard, renderedImage);
-
-        if (createOverview) {
-          ContentItem overviewContentItem =
-              createDerivedImage(
-                  metacard.getId(),
-                  OVERVIEW,
-                  renderedImage,
-                  metacard,
-                  calculateOverviewWidth(renderedImage),
-                  calculateOverviewHeight(renderedImage));
-
-          contentItems.add(overviewContentItem);
-        }
-
-        if (storeOriginalImage) {
-          ContentItem originalImageContentItem =
-              createOriginalImage(metacard.getId(), renderedImage, metacard);
-
-          contentItems.add(originalImageContentItem);
-        }
-      }
-    } catch (NumberFormatException e) {
-      LOGGER.debug("Error getting resource size {}", e.getMessage(), e);
-    } catch (IOException | NitfFormatException | RuntimeException e) {
-      LOGGER.debug("Error creating and storing thumbnail/overview/original: {}", e.getMessage(), e);
-    }
-  }
-
-  private BufferedImage processLarge(InputStream input) {
-    return AccessController.doPrivileged(
-        (PrivilegedAction<BufferedImage>)
-            () -> {
-              AtomicReference<BufferedImage> img = new AtomicReference<>();
-              try {
-                nitfParserService.parseNitf(input, true).forEachImageSegment(segment -> {
-                  List<BeLittleResult> result = beLittle.resize(segment.getData());
+        // Process large
+        nitfParserService
+            .parseNitf(input, true)
+            .forEachImageSegment(
+                segment -> {
+                  image.set(beLittle.resize(segment.getData()));
                 });
+      }
+    }
 
-              } catch (NitfFormatException e) {
-                LOGGER.info("Failed to extract image from NITF", e);
-              }
-              return img.get();
-            });
+    // Thumbnail
+    addThumbnailToMetacard(metacard, image.get());
+
+    // Overview
+    if (image.get() != null) {
+      if (createOverview) {
+        ContentItem overviewContentItem =
+            createDerivedImage(
+                metacard.getId(),
+                OVERVIEW,
+                image.get(),
+                metacard,
+                calculateOverviewWidth(image.get()),
+                calculateOverviewHeight(image.get()));
+        contentItems.add(overviewContentItem);
+      }
+
+      // Original
+      if (!largeFile && storeOriginalImage) {
+        ContentItem originalImageContentItem =
+            createOriginalImage(metacard.getId(), image.get(), metacard);
+        contentItems.add(originalImageContentItem);
+      }
+    }
   }
 
   private BufferedImage renderImageUsingOriginalDataModel(InputStream source)
@@ -411,29 +406,27 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   private ContentItem createOriginalImage(String id, BufferedImage image, Metacard metacard) {
 
-    //    try {
-    // TODO: Free Java libs for J2K are complete and utter bollicks. Suggest rendering to a useful
-    // format like JPEG or PNG.
-    //      byte[] originalBytes = renderToJpeg2k(image);
+    try {
+      byte[] originalBytes = renderToJpeg2k(image);
 
-    //      ByteSource source = ByteSource.wrap(originalBytes);
-    //      ContentItem contentItem =
-    //          new ContentItemImpl(
-    //              id,
-    //              ORIGINAL,
-    //              source,
-    //              IMAGE_JPEG2K,
-    //              buildDerivedImageTitle(metacard.getTitle(), ORIGINAL, JP2),
-    //              originalBytes.length,
-    //              metacard);
-    //
-    //      addDerivedResourceAttribute(metacard, contentItem);
-    //
-    //      return contentItem;
-    //
-    //    } catch (IOException e) {
-    //      LOGGER.debug(e.getMessage(), e);
-    //    }
+      ByteSource source = ByteSource.wrap(originalBytes);
+      ContentItem contentItem =
+          new ContentItemImpl(
+              id,
+              ORIGINAL,
+              source,
+              IMAGE_JPEG2K,
+              buildDerivedImageTitle(metacard.getTitle(), ORIGINAL, JP2),
+              originalBytes.length,
+              metacard);
+
+      addDerivedResourceAttribute(metacard, contentItem);
+
+      return contentItem;
+
+    } catch (IOException e) {
+      LOGGER.debug(e.getMessage(), e);
+    }
 
     return null;
   }
@@ -464,44 +457,43 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
     ImageIO.write(thumbnail, JPG, outputStream);
     outputStream.flush();
-    byte[] thumbnailBytes = outputStream.toByteArray();
+    byte[] scaledImageBytes = outputStream.toByteArray();
     outputStream.close();
-    return thumbnailBytes;
+    return scaledImageBytes;
   }
 
-  //  private byte[] renderToJpeg2k(final BufferedImage bufferedImage) throws IOException {
-  //
-  //    BufferedImage imageToCompress = bufferedImage;
-  //
-  //    if (bufferedImage.getColorModel().getNumComponents() == ARGB_COMPONENT_COUNT) {
-  //
-  //      imageToCompress =
-  //          new BufferedImage(
-  //              bufferedImage.getWidth(), bufferedImage.getHeight(),
-  // BufferedImage.TYPE_3BYTE_BGR);
-  //
-  //      Graphics2D g = imageToCompress.createGraphics();
-  //
-  //      g.drawImage(bufferedImage, 0, 0, null);
-  //    }
-  //
-  //    ByteArrayOutputStream os = new ByteArrayOutputStream();
-  //
-  //    J2KImageWriter writer = new J2KImageWriter(new J2KImageWriterSpi());
-  //    J2KImageWriteParam writeParams = (J2KImageWriteParam) writer.getDefaultWriteParam();
-  //    writeParams.setLossless(false);
-  //    writeParams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-  //    writeParams.setCompressionType("JPEG2000");
-  //    writeParams.setCompressionQuality(0.0f);
-  //
-  //    ImageOutputStream ios = new MemoryCacheImageOutputStream(os);
-  //    writer.setOutput(ios);
-  //    writer.write(null, new IIOImage(imageToCompress, null, null), writeParams);
-  //    writer.dispose();
-  //    ios.close();
-  //
-  //    return os.toByteArray();
-  //  }
+  private byte[] renderToJpeg2k(final BufferedImage bufferedImage) throws IOException {
+
+    BufferedImage imageToCompress = bufferedImage;
+
+    if (bufferedImage.getColorModel().getNumComponents() == ARGB_COMPONENT_COUNT) {
+
+      imageToCompress =
+          new BufferedImage(
+              bufferedImage.getWidth(), bufferedImage.getHeight(), BufferedImage.TYPE_3BYTE_BGR);
+
+      Graphics2D g = imageToCompress.createGraphics();
+
+      g.drawImage(bufferedImage, 0, 0, null);
+    }
+
+    ByteArrayOutputStream os = new ByteArrayOutputStream();
+
+    J2KImageWriter writer = new J2KImageWriter(new J2KImageWriterSpi());
+    J2KImageWriteParam writeParams = (J2KImageWriteParam) writer.getDefaultWriteParam();
+    writeParams.setLossless(false);
+    writeParams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+    writeParams.setCompressionType("JPEG2000");
+    writeParams.setCompressionQuality(0.0f);
+
+    ImageOutputStream ios = new MemoryCacheImageOutputStream(os);
+    writer.setOutput(ios);
+    writer.write(null, new IIOImage(imageToCompress, null, null), writeParams);
+    writer.dispose();
+    ios.close();
+
+    return os.toByteArray();
+  }
 
   private long getResourceSizeInMB(Metacard metacard) {
     return Long.parseLong(metacard.getResourceSize()) / MEGABYTE;

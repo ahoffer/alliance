@@ -53,6 +53,7 @@
                             codice-imaging-nitf-core-api
                         </Embed-Dependency>
                         <Export-Package>
+                            !javax.imageio.*,
                             org.codice.alliance.imaging.nitf.api,
                             org.codice.imaging.nitf.core,
                             org.codice.imaging.nitf.core.common,

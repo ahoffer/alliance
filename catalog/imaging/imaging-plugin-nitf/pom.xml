@@ -102,7 +102,6 @@
             <groupId>com.github.jai-imageio</groupId>
             <artifactId>jai-imageio-jpeg2000</artifactId>
             <version>${jpeg2000.version}</version>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -122,6 +121,7 @@
             <artifactId>belittle-api</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
+
     </dependencies>
 
     <build>
@@ -139,9 +139,11 @@
                             catalog-core-api-impl;groupId=ddf.catalog.core;version${ddf.version},
                             platform-util,
                             codice-imaging-nitf-render
+                            <!--,-->
+                            <!--jai-imageio-core,-->
+                            <!--jai-imageio-jpeg2000-->
                         </Embed-Dependency>
                         <Export-Package/>
-                        <Import-Package>!sun.security.action,*</Import-Package>
                     </instructions>
                 </configuration>
             </plugin>
