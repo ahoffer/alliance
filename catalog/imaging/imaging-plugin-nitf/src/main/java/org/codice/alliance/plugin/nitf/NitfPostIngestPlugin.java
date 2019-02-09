@@ -288,32 +288,36 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
             .parseNitf(input, true)
             .forEachImageSegment(
                 segment -> {
-                  image.set(beLittle.resize(segment.getData()));
+                  // Some segmenents are bogus.
+                  // Take the first segment that can be converted to an image.
+                  if (image.get() == null) {
+                    image.set(beLittle.resize(segment.getData()));
+                  }
                 });
       }
     }
 
     // Thumbnail
-    addThumbnailToMetacard(metacard, image.get());
+    BufferedImage img = image.get();
+    addThumbnailToMetacard(metacard, img);
 
     // Overview
-    if (image.get() != null) {
+    if (img != null) {
       if (createOverview) {
         ContentItem overviewContentItem =
             createDerivedImage(
                 metacard.getId(),
                 OVERVIEW,
-                image.get(),
+                img,
                 metacard,
-                calculateOverviewWidth(image.get()),
-                calculateOverviewHeight(image.get()));
+                calculateOverviewWidth(img),
+                calculateOverviewHeight(img));
         contentItems.add(overviewContentItem);
       }
 
       // Original
       if (!largeFile && storeOriginalImage) {
-        ContentItem originalImageContentItem =
-            createOriginalImage(metacard.getId(), image.get(), metacard);
+        ContentItem originalImageContentItem = createOriginalImage(metacard.getId(), img, metacard);
         contentItems.add(originalImageContentItem);
       }
     }
