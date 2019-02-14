@@ -13,9 +13,8 @@
  */
 package org.codice.alliance.plugin.nitf;
 
-import belittle.BeLittle;
-import belittle.BeLittleFactory;
-import belittle.BeLittleSizerSetting;
+import belittle.ResizableImage;
+import belittle.ResizableImageFactory;
 import com.github.jaiimageio.jpeg2000.J2KImageWriteParam;
 import com.github.jaiimageio.jpeg2000.impl.J2KImageWriter;
 import com.github.jaiimageio.jpeg2000.impl.J2KImageWriterSpi;
@@ -136,8 +135,7 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
   //  }
 
   private double maxSideLength = DEFAULT_MAX_SIDE_LENGTH;
-  private BeLittleFactory belittleFactory;
-  private BeLittle beLittle;
+  private ResizableImageFactory resizableImageFactory;
 
   public NitfPostIngestPlugin() {
     this(new Semaphore(MAX_THREAD_COUNT, true));
@@ -149,10 +147,10 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   @SuppressWarnings("unused")
   public void initialize() {
-    BeLittleSizerSetting settings = belittleFactory.newSetting();
-    settings.setWidth((int) maxSideLength);
-    settings.setHeight((int) maxSideLength);
-    beLittle = belittleFactory.newBeLittle(settings);
+    //    BeLittleSizerSetting settings = resizableImageFactory.newResizeableImage()
+    //    settings.setWidth((int) maxSideLength);
+    //    settings.setHeight((int) maxSideLength);
+    //    beLittle = belittleFactory.newBeLittle(settings);
   }
 
   @Override
@@ -291,7 +289,15 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
                   // Some segmenents are bogus.
                   // Take the first segment that can be converted to an image.
                   if (image.get() == null) {
-                    image.set(beLittle.resize(segment.getData()));
+                    try {
+                      ResizableImage resizableImage = resizableImageFactory
+                          .newResizeableImage(segment.getData());
+                      BufferedImage img = resizableImage
+                          .setWidth((int) maxSideLength).setHeight((int) maxSideLength).resize();
+                      image.set(img);
+                    } catch (IOException e) {
+                      LOGGER.info("Could not create image file. Unable to process NITF image");
+                    }
                   }
                 });
       }
@@ -299,10 +305,10 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
     // Thumbnail
     BufferedImage img = image.get();
-    addThumbnailToMetacard(metacard, img);
 
     // Overview
     if (img != null) {
+      addThumbnailToMetacard(metacard, img);
       if (createOverview) {
         ContentItem overviewContentItem =
             createDerivedImage(
@@ -575,11 +581,11 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
     this.nitfParserService = nitfParserService;
   }
 
-  public BeLittleFactory getBelittleFactory() {
-    return belittleFactory;
+  public ResizableImageFactory getResizableImageFactory() {
+    return resizableImageFactory;
   }
 
-  public void setBelittleFactory(BeLittleFactory belittleFactory) {
-    this.belittleFactory = belittleFactory;
+  public void setResizableImageFactory(ResizableImageFactory resizableImageFactory) {
+    this.resizableImageFactory = resizableImageFactory;
   }
 }

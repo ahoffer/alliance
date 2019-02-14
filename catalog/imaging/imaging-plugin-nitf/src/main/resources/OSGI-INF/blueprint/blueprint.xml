@@ -26,7 +26,7 @@
     <reference id="nitfParserService"
         interface="org.codice.alliance.imaging.nitf.api.NitfParserService"/>
 
-    <reference id="belittleFactory" interface="belittle.BeLittleFactory"/>
+    <reference id="resizableImageFactory" interface="belittle.ResizableImageFactory"/>
 
     <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin"
         init-method="initialize">
@@ -35,7 +35,7 @@
         <property name="maxSideLength" value="1024"/>
         <property name="catalogFramework" ref="catalogFramework"/>
         <property name="nitfParserService" ref="nitfParserService"/>
-        <property name="belittleFactory" ref="belittleFactory"/>
+        <property name="resizableImageFactory" ref="resizableImageFactory"/>
     </bean>
 
     <service ref="plugin" auto-export="interfaces">
