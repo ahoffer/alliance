@@ -292,9 +292,9 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
                     try {
                       ResizableImage resizableImage = resizableImageFactory
                           .newResizeableImage(segment.getData());
-                      BufferedImage img = resizableImage
+                      BufferedImage outputImage = resizableImage
                           .setWidth((int) maxSideLength).setHeight((int) maxSideLength).resize();
-                      image.set(img);
+                      image.set(outputImage);
                     } catch (IOException e) {
                       LOGGER.info("Could not create image file. Unable to process NITF image");
                     }
