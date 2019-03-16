@@ -28,8 +28,7 @@
 
     <reference id="resizableImageFactory" interface="belittle.ResizableImageFactory"/>
 
-    <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin"
-        init-method="initialize">
+    <bean id="plugin" class="org.codice.alliance.plugin.nitf.NitfPostIngestPlugin">
         <cm:managed-properties persistent-id="NITF_Render_Plugin"
             update-strategy="container-managed"/>
         <property name="maxSideLength" value="1024"/>

@@ -129,11 +129,6 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
   private CatalogFramework catalogFramework;
   private NitfParserService nitfParserService;
   private Semaphore lock;
-
-  //  static {
-  //    IIORegistry.getDefaultInstance().registerServiceProvider(new J2KImageReaderSpi());
-  //  }
-
   private double maxSideLength = DEFAULT_MAX_SIDE_LENGTH;
   private ResizableImageFactory resizableImageFactory;
 
@@ -143,14 +138,6 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
 
   public NitfPostIngestPlugin(Semaphore lock) {
     this.lock = lock;
-  }
-
-  @SuppressWarnings("unused")
-  public void initialize() {
-    //    BeLittleSizerSetting settings = resizableImageFactory.newResizeableImage()
-    //    settings.setWidth((int) maxSideLength);
-    //    settings.setHeight((int) maxSideLength);
-    //    beLittle = belittleFactory.newBeLittle(settings);
   }
 
   @Override
@@ -290,13 +277,14 @@ public class NitfPostIngestPlugin implements PostIngestPlugin {
                   // Take the first segment that can be converted to an image.
                   if (image.get() == null) {
                     try {
-                      ResizableImage resizableImage = resizableImageFactory
+                      ResizableImage resizableImage = getResizableImageFactory()
                           .newResizeableImage(segment.getData());
                       BufferedImage outputImage = resizableImage
                           .setWidth((int) maxSideLength).setHeight((int) maxSideLength).resize();
                       image.set(outputImage);
                     } catch (IOException e) {
-                      LOGGER.info("Could not create image file. Unable to process NITF image");
+                      LOGGER.info("Could not create image file. Unable to process NITF image");cd ..
+
                     }
                   }
                 });
